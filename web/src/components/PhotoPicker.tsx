@@ -1,4 +1,4 @@
-// PhotoPicker.tsx - take (or choose) a photo for one side of the card, with a preview.
+// PhotoPicker.tsx - scan, take, or choose a photo for one side of the card, with a preview.
 
 // A picked photo plus a temporary URL the <img> preview can show.
 export type Photo = { file: File; url: string };
@@ -7,9 +7,11 @@ type Props = {
   label: string;
   photo: Photo | null;
   onChange: (file: File | null) => void;
+  onScan: () => void;
+  scanDisabled: boolean; // e.g. while OpenCV is still loading
 };
 
-export function PhotoPicker({ label, photo, onChange }: Props) {
+export function PhotoPicker({ label, photo, onChange, onScan, scanDisabled }: Props) {
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     onChange(e.target.files?.[0] ?? null);
     e.target.value = ""; // so picking the same file again still fires onChange
@@ -24,9 +26,14 @@ export function PhotoPicker({ label, photo, onChange }: Props) {
         <div className="preview empty">No photo yet</div>
       )}
 
-      {/* capture="environment" opens the rear camera directly at full resolution. */}
+      {/* Live camera that captures automatically once the card is in frame. */}
+      <button className="button scan" onClick={onScan} disabled={scanDisabled}>
+        {photo ? "Rescan" : "Scan card"}
+      </button>
+
+      {/* capture="environment" opens the native camera app at full resolution. */}
       <label className="button">
-        {photo ? "Retake" : "Take photo"}
+        {photo ? "Retake photo" : "Take photo"}
         <input type="file" accept="image/*" capture="environment" onChange={handleFile} hidden />
       </label>
 

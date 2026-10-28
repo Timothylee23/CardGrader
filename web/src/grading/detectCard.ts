@@ -21,30 +21,46 @@ export const CARD_WIDTH = 750;
 export const CARD_HEIGHT = 1050;
 const DETECT_MAX_SIDE = 1200; // shrink to this before searching (faster, less noise)
 
-export type DetectResult = {
-  method: string;        // which mask found it: "edges" | "bright" | "dark"
-  corners: Quad;         // in full-photo pixel coordinates
-  warped: Mat;           // 750x1050 RGBA card. CALLER MUST .delete() IT.
-  outlineDebug: Mat;     // shrunk photo with the outline drawn. CALLER MUST .delete() IT.
+export type QuadResult = {
+  method: string; // which mask found it: "edges" | "bright" | "dark"
+  corners: Quad;  // in the input image's pixel coordinates
+};
+
+export type DetectResult = QuadResult & {
+  warped: Mat;       // 750x1050 RGBA card. CALLER MUST .delete() IT.
+  outlineDebug: Mat; // shrunk photo with the outline drawn. CALLER MUST .delete() IT.
 };
 
 // Everything we learn about one candidate blob.
 type Candidate = { method: string; area: number; corners: Quad };
 
+// Steps 1-4 + 5: find the card and warp it flat. Used for grading.
 export function detectCard(cv: CV, photo: Mat): DetectResult | null {
+  const found = findCardQuad(cv, photo);
+  if (!found) return null;
+  const warped = warpCard(cv, photo, found.corners);
+  const outlineDebug = drawOutline(cv, photo, found.corners);
+  return { ...found, warped, outlineDebug }; // "..." copies method + corners in
+}
+
+// Steps 1-4 only: find the card's 4 corners, no warp. The live scanner calls
+// this ~10 times a second on small video frames.
+// minArea: smallest blob (fraction of the image) that can count as the card.
+// The scanner passes a smaller value so it can say "move closer".
+export function findCardQuad(cv: CV, photo: Mat, minArea = 0.1): QuadResult | null {
   const t = new MatTracker();
   try {
-    // --- 1. Shrink ---
+    // --- 1. Shrink (small inputs like video frames are left as-is) ---
     const scale = Math.min(1, DETECT_MAX_SIDE / Math.max(photo.cols, photo.rows));
     const small = t.track(new cv.Mat());
     cv.resize(photo, small, new cv.Size(Math.round(photo.cols * scale), Math.round(photo.rows * scale)),
       0, 0, cv.INTER_AREA);
     const realScale = small.cols / photo.cols; // exact scale after rounding
 
-    // --- 2 + 3. Try each mask, keep the biggest card-shaped blob ---
+    // --- 2 + 3 + 4. Try each mask, keep the biggest card-shaped blob ---
     let best: Candidate | null = null;
     for (const { method, mask } of makeMasks(cv, small, t)) {
-      const found = findCardInMask(cv, mask, method, t);
+      const found = findCardInMask(cv, mask, method, minArea, t);
       if (found && (!best || found.area > best.area)) best = found;
     }
     if (!best) return null;
@@ -55,11 +71,7 @@ export function detectCard(cv: CV, photo: Mat): DetectResult | null {
       x: (p.x + 0.5) / realScale - 0.5,
       y: (p.y + 0.5) / realScale - 0.5,
     })) as Quad;
-
-    // --- 5. Warp ---
-    const warped = warpCard(cv, photo, corners);
-    const outlineDebug = drawOutline(cv, small, best.corners);
-    return { method: best.method, corners, warped, outlineDebug };
+    return { method: best.method, corners };
   } finally {
     t.deleteAll(); // runs even if something above throws
   }
@@ -92,7 +104,9 @@ function makeMasks(cv: CV, small: Mat, t: MatTracker): { method: string; mask: M
   ];
 }
 
-function findCardInMask(cv: CV, mask: Mat, method: string, t: MatTracker): Candidate | null {
+function findCardInMask(
+  cv: CV, mask: Mat, method: string, minArea: number, t: MatTracker,
+): Candidate | null {
   const contours = t.track(new cv.MatVector());
   const hierarchy = t.track(new cv.Mat());
   cv.findContours(mask, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_NONE);
@@ -104,7 +118,7 @@ function findCardInMask(cv: CV, mask: Mat, method: string, t: MatTracker): Candi
     const contour = contours.get(i); // .get() makes a new Mat handle -> delete it
     try {
       const area = cv.contourArea(contour);
-      if (area < 0.1 * imageArea) continue; // too small to be the card
+      if (area < minArea * imageArea) continue; // too small to be the card
 
       const box = cv.boundingRect(contour);
       const touchesEdge = box.x <= 2 || box.y <= 2 ||
@@ -243,20 +257,21 @@ function warpCard(cv: CV, photo: Mat, corners: Quad): Mat {
   }
 }
 
-// Debug image: the shrunk photo with a green outline and labelled corners.
-function drawOutline(cv: CV, small: Mat, corners: Quad): Mat {
-  const image = small.clone();
+// Debug image: a shrunk copy of the photo with a green outline and labelled corners.
+function drawOutline(cv: CV, photo: Mat, corners: Quad): Mat {
+  const scale = Math.min(1, DETECT_MAX_SIDE / Math.max(photo.cols, photo.rows));
+  const image = new cv.Mat();
+  cv.resize(photo, image, new cv.Size(Math.round(photo.cols * scale), Math.round(photo.rows * scale)),
+    0, 0, cv.INTER_AREA);
+  const pts = corners.map((p) => new cv.Point(Math.round(p.x * scale), Math.round(p.y * scale)));
+
   const green = new cv.Scalar(0, 255, 0, 255); // RGBA
   const red = new cv.Scalar(255, 0, 0, 255);
   const labels = ["TL", "TR", "BR", "BL"];
-  corners.forEach((p, i) => {
-    const next = corners[(i + 1) % 4];
-    cv.line(image, new cv.Point(p.x, p.y), new cv.Point(next.x, next.y), green, 3);
-  });
-  corners.forEach((p, i) => {
-    cv.circle(image, new cv.Point(p.x, p.y), 8, red, -1); // -1 = filled
-    cv.putText(image, labels[i], new cv.Point(p.x + 10, p.y - 10),
-      cv.FONT_HERSHEY_SIMPLEX, 1, red, 2);
+  pts.forEach((p, i) => cv.line(image, p, pts[(i + 1) % 4], green, 3));
+  pts.forEach((p, i) => {
+    cv.circle(image, p, 8, red, -1); // -1 = filled
+    cv.putText(image, labels[i], new cv.Point(p.x + 10, p.y - 10), cv.FONT_HERSHEY_SIMPLEX, 1, red, 2);
   });
   return image;
 }

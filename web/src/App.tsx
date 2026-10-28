@@ -5,6 +5,7 @@ import type { CV } from "@techstark/opencv-js";
 import { InstallHint } from "./components/InstallHint.tsx";
 import { type Photo, PhotoPicker } from "./components/PhotoPicker.tsx";
 import { Results } from "./components/Results.tsx";
+import { Scanner } from "./components/Scanner.tsx";
 import type { CardResult, Face } from "./grading/gradeCard.ts";
 import { gradePhotos } from "./lib/grade.ts";
 import { loadOpenCv } from "./lib/opencv.ts";
@@ -12,6 +13,7 @@ import { loadOpenCv } from "./lib/opencv.ts";
 export default function App() {
   const [front, setFront] = useState<Photo | null>(null);
   const [back, setBack] = useState<Photo | null>(null);
+  const [scanning, setScanning] = useState<Face | null>(null); // which side the scanner is open for
   const [cv, setCv] = useState<CV | null>(null);
   const [cvError, setCvError] = useState<string | null>(null);
   const [grading, setGrading] = useState(false);
@@ -61,8 +63,10 @@ export default function App() {
       <InstallHint />
 
       <div className="pickers">
-        <PhotoPicker label="Front" photo={front} onChange={(f) => pickPhoto("front", f)} />
-        <PhotoPicker label="Back" photo={back} onChange={(f) => pickPhoto("back", f)} />
+        <PhotoPicker label="Front" photo={front} onChange={(f) => pickPhoto("front", f)}
+          onScan={() => setScanning("front")} scanDisabled={!cv} />
+        <PhotoPicker label="Back" photo={back} onChange={(f) => pickPhoto("back", f)}
+          onScan={() => setScanning("back")} scanDisabled={!cv} />
       </div>
 
       <button className="button primary" disabled={!canGrade} onClick={handleGrade}>
@@ -77,6 +81,19 @@ export default function App() {
         Tips: plain dark background, bright even light, no flash, phone straight above the card,
         whole card in frame with space around it. Photos never leave your phone.
       </p>
+
+      {/* Full-screen scanner on top of everything while open */}
+      {scanning && cv && (
+        <Scanner
+          cv={cv}
+          face={scanning}
+          onCapture={(file) => {
+            pickPhoto(scanning, file);
+            setScanning(null);
+          }}
+          onCancel={() => setScanning(null)}
+        />
+      )}
     </main>
   );
 }
