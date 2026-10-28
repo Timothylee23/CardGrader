@@ -18,6 +18,7 @@ export default function App() {
   const [cvError, setCvError] = useState<string | null>(null);
   const [grading, setGrading] = useState(false);
   const [result, setResult] = useState<CardResult | null>(null);
+  const [gradeRun, setGradeRun] = useState(0); // bumps each grading so the results (and editor) start fresh
   const [error, setError] = useState<string | null>(null);
 
   // Start loading OpenCV in the background as soon as the app opens.
@@ -48,6 +49,7 @@ export default function App() {
       if (front) photos.push({ face: "front", file: front.file });
       if (back) photos.push({ face: "back", file: back.file });
       setResult(await gradePhotos(cv, photos));
+      setGradeRun((n) => n + 1);
     } catch (e) {
       setError(`Something went wrong: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -75,11 +77,13 @@ export default function App() {
       {cvError && <p className="error">{cvError}</p>}
       {error && <p className="error">{error}</p>}
 
-      {result && <Results result={result} />}
+      {result && <Results key={gradeRun} result={result} />}
 
       <p className="note">
-        Tips: plain dark background, bright even light, no flash, phone straight above the card,
-        whole card in frame with space around it. Photos never leave your phone.
+        Tips: plain background that contrasts with the card's border (dark for yellow/white
+        borders, light for dark borders like Pokémon backs), bright even light, no flash, phone
+        straight above the card, whole card in frame with space around it. Photos never leave
+        your phone.
       </p>
 
       {/* Full-screen scanner on top of everything while open */}

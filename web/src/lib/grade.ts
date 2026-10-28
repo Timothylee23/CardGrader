@@ -1,7 +1,7 @@
 // grade.ts - glue between the UI (Files) and the grading pipeline (Mats).
 
 import type { CV } from "@techstark/opencv-js";
-import { type CardResult, type Face, type FaceResult, combineFaces, gradeFace } from "../grading/gradeCard.ts";
+import { type CardResult, type Face, type FaceResult, gradeFace } from "../grading/gradeCard.ts";
 import { fileToImageData } from "./loadImage.ts";
 
 export async function gradePhotos(
@@ -18,5 +18,5 @@ export async function gradePhotos(
       mat.delete();
     }
   }
-  return combineFaces(faces);
+  return { faces };
 }

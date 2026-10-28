@@ -12,7 +12,7 @@
 
 import type { CV, Mat } from "@techstark/opencv-js";
 import { findCardQuad } from "./detectCard.ts";
-import { type Quad, distance, quadSize } from "./geometry.ts";
+import { type Quad, distance, quadArea, quadSize } from "./geometry.ts";
 import { MatTracker } from "./mats.ts";
 
 // --- Settings ---
@@ -32,11 +32,17 @@ export type FrameCheck = {
 // Check one (small) video frame. `frame` is RGBA; the caller still owns it.
 export function analyzeFrame(cv: CV, frame: Mat): FrameCheck {
   // Accept small cards here (3%) so we can tell the user to move closer.
-  const found = findCardQuad(cv, frame, 0.03);
+  // No edge snapping: too slow for 10 checks a second, and not needed to frame the shot.
+  const found = findCardQuad(cv, frame, 0.03, false);
   if (!found) {
     return { corners: null, issue: "Looking for the card… keep all 4 edges in view", sharpness: 0 };
   }
   const corners = found.corners;
+  // The card runs off the edge of the frame: what we see is its inner frame,
+  // and the outer border can't be measured. (Easy to do after "Move closer".)
+  if (found.cutOff) {
+    return { corners, issue: "Move back a little - the whole card needs to fit, with space around it", sharpness: 0 };
+  }
   const sharpness = measureSharpness(cv, frame, corners);
 
   // Tilt first: tilting also makes the card look smaller, and "move closer"
@@ -49,16 +55,6 @@ export function analyzeFrame(cv: CV, frame: Mat): FrameCheck {
   if (sharpness < MIN_SHARPNESS) return { corners, issue: "Hold steady, it's blurry", sharpness };
 
   return { corners, issue: null, sharpness };
-}
-
-// Area of a 4-sided shape ("shoelace formula").
-function quadArea(q: Quad): number {
-  let sum = 0;
-  for (let i = 0; i < 4; i++) {
-    const a = q[i], b = q[(i + 1) % 4];
-    sum += a.x * b.y - b.x * a.y;
-  }
-  return Math.abs(sum) / 2;
 }
 
 // 1.0 = perfect rectangle seen straight on. Tilting the phone makes the far

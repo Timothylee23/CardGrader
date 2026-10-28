@@ -80,3 +80,13 @@ export function percentile(sorted: number[], pct: number): number {
   const hi = Math.ceil(index);
   return sorted[lo] + (sorted[hi] - sorted[lo]) * (index - lo);
 }
+
+// Area of a 4-sided shape ("shoelace formula").
+export function quadArea(q: Quad): number {
+  let sum = 0;
+  for (let i = 0; i < 4; i++) {
+    const a = q[i], b = q[(i + 1) % 4];
+    sum += a.x * b.y - b.x * a.y;
+  }
+  return Math.abs(sum) / 2;
+}
